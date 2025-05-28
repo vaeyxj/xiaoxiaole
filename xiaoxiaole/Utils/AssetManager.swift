@@ -134,6 +134,14 @@ class AssetManager {
         static let textPrimary = UIColor(red: 0.2, green: 0.2, blue: 0.3, alpha: 1.0)
         static let textSecondary = UIColor(red: 0.5, green: 0.5, blue: 0.6, alpha: 1.0)
         
+        // 边框颜色
+        static let borderPrimary = UIColor(red: 0.6, green: 0.6, blue: 0.7, alpha: 1.0)
+        static let borderSecondary = UIColor(red: 0.7, green: 0.7, blue: 0.8, alpha: 1.0)
+        
+        // 棋盘格子颜色
+        static let cellLight = UIColor(red: 0.85, green: 0.85, blue: 0.9, alpha: 1.0)
+        static let cellDark = UIColor(red: 0.75, green: 0.75, blue: 0.8, alpha: 1.0)
+        
         // 战斗UI颜色
         static let healthBarBackground = UIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 0.8)
         static let playerHealthBar = UIColor(red: 0.2, green: 0.8, blue: 0.2, alpha: 1.0)
@@ -141,7 +149,7 @@ class AssetManager {
         static let manaBarBackground = UIColor(red: 0.2, green: 0.2, blue: 0.4, alpha: 0.8)
         static let manaBar = UIColor(red: 0.3, green: 0.5, blue: 0.9, alpha: 1.0)
         static let panelBackground = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.7)
-        static let borderColor = UIColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1.0)
+        static let borderColor = UIColor.white
         static let textColor = UIColor.white
         
         // 战斗相关颜色

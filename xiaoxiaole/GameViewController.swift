@@ -49,14 +49,12 @@ class GameViewController: UIViewController {
     
     // MARK: - 设置方法
     private func setupSKView() {
-        // 创建SKView
-        skView = SKView(frame: view.bounds)
-        skView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(skView)
+        // 直接使用Storyboard中已经设置的SKView
+        skView = view as! SKView
         
         // 配置SKView
-        skView.showsFPS = true
-        skView.showsNodeCount = true
+        skView.showsFPS = false  // 发布版本关闭FPS显示
+        skView.showsNodeCount = false  // 发布版本关闭节点数显示
         skView.showsPhysics = false
         skView.ignoresSiblingOrder = true
         skView.preferredFramesPerSecond = 60
@@ -183,5 +181,42 @@ class GameViewController: UIViewController {
         
         \(gameSceneManager.getDebugInfo())
         """
+    }
+    
+    func debugViewHierarchy() {
+        print("🔍 视图层级调试:")
+        print("🔍 主视图: \(view)")
+        print("🔍 主视图类型: \(type(of: view))")
+        print("🔍 主视图子视图数: \(view.subviews.count)")
+        print("🔍 SKView: \(skView)")
+        print("🔍 SKView === view: \(skView === view)")
+        print("🔍 SKView frame: \(skView.frame)")
+        print("🔍 SKView bounds: \(skView.bounds)")
+        print("🔍 SKView superview: \(skView.superview)")
+        print("🔍 SKView 是否隐藏: \(skView.isHidden)")
+        print("🔍 SKView alpha: \(skView.alpha)")
+        print("🔍 SKView 背景色: \(skView.backgroundColor)")
+        
+        if let scene = skView.scene {
+            print("🔍 当前场景: \(scene)")
+            print("🔍 场景类型: \(type(of: scene))")
+            print("🔍 场景大小: \(scene.size)")
+            print("🔍 场景背景色: \(scene.backgroundColor)")
+            print("🔍 场景子节点数: \(scene.children.count)")
+            
+            // 列出场景的子节点
+            for (index, child) in scene.children.enumerated() {
+                print("🔍   子节点\(index): \(type(of: child)) - \(child.name ?? "无名称")")
+            }
+        } else {
+            print("🔍 没有当前场景")
+        }
+        
+        // 强制重新布局
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        skView.setNeedsDisplay()
+        
+        print("🔍 已强制重新布局和显示")
     }
 }

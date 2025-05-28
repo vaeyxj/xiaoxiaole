@@ -201,6 +201,20 @@ class GameManager: ObservableObject {
         print("🏰 前往下一层 - 楼层: \(currentFloor)")
     }
     
+    func resetCurrentLevel() {
+        // 重置当前关卡状态
+        currentFloor = 1
+        currentCombo = 0
+        currentEnemy = nil
+        currentState = .playing
+        combatState = .playerTurn
+        
+        // 重新生成当前等级的地牢
+        currentDungeon = dungeonGenerator.generateDungeon(level: currentLevel)
+        
+        print("🔄 重置当前关卡 - 等级: \(currentLevel)")
+    }
+    
     // MARK: - 消除系统管理
     func processMatch(type: MatchType, gemType: GemType, count: Int) {
         let baseScore = type.score
