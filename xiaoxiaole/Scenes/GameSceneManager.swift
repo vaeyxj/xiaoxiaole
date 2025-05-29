@@ -179,7 +179,7 @@ class GameSceneManager {
         
         DispatchQueue.main.asyncAfter(deadline: .now() + Config.transitionDuration) {
             self.isTransitioning = false
-            print("🎬 场景切换完成: \(oldSceneType) -> \(sceneType)")
+        print("🎬 场景切换完成: \(oldSceneType) -> \(sceneType)")
         }
     }
     
@@ -682,8 +682,8 @@ class GameplayScene: BaseGameScene {
                 AnimationSystem.shared.animateButtonPress(touchedNode) {
                     self.handleResetButton()
                 }
-            }
         }
+    }
     }
     
     private func handleGemTouch(nodeName: String, location: CGPoint) {
@@ -925,8 +925,8 @@ class GameplayScene: BaseGameScene {
         // 更新关卡信息
         if let levelLabel = childNode(withName: "levelLabel") as? SKLabelNode {
             levelLabel.text = "🏰 关卡 \(GameManager.shared.currentLevel)-\(GameManager.shared.currentFloor)"
-        }
-    }
+                }
+            }
     
     private func handlePauseButton() {
         GameManager.shared.pauseGame()
@@ -949,9 +949,9 @@ class CombatScene: BaseGameScene {
         let label = SKLabelNode(text: "战斗场景")
         label.position = CGPoint(x: size.width/2, y: size.height/2)
         addChild(label)
+        }
     }
-}
-
+    
 class ShopScene: BaseGameScene {
     override func didMove(to view: SKView) {
         super.didMove(to: view)
@@ -971,9 +971,9 @@ class InventoryScene: BaseGameScene {
         let label = SKLabelNode(text: "物品栏场景")
         label.position = CGPoint(x: size.width/2, y: size.height/2)
         addChild(label)
+        }
     }
-}
-
+    
 class SettingsScene: BaseGameScene {
     override func didMove(to view: SKView) {
         super.didMove(to: view)
