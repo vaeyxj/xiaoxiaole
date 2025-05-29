@@ -289,6 +289,18 @@ class BaseGameScene: SKScene {
     func didDisappear() {
         // 子类重写此方法来处理场景已消失的逻辑
     }
+    
+    override func update(_ currentTime: TimeInterval) {
+        super.update(currentTime)
+        
+        // 定期检测和修复缩放问题（每秒检测一次）
+        if currentTime - lastUpdateTime > 1.0 {
+            AnimationSystem.shared.detectAndFixScaleIssues(in: self)
+            lastUpdateTime = currentTime
+        }
+    }
+    
+    private var lastUpdateTime: TimeInterval = 0
 }
 
 // MARK: - 具体场景类

@@ -144,18 +144,25 @@ class AnimationSystem {
         let moveAction = SKAction.move(to: position, duration: duration)
         moveAction.timingMode = Config.bounceEasing
         
-        // 添加轻微的弹跳效果
-        let bounceSequence = SKAction.sequence([
+        // 确保节点缩放正确
+        node.setScale(1.0)
+        
+        // 添加轻微的弹跳效果，使用更安全的动画序列
+        let bounceScale = SKAction.sequence([
+            SKAction.scale(to: 1.05, duration: 0.03),  // 减小弹跳幅度
+            SKAction.scale(to: 1.0, duration: 0.03)    // 确保回到正常大小
+        ])
+        
+        let fullSequence = SKAction.sequence([
             moveAction,
-            SKAction.scale(to: 1.1, duration: 0.05),
-            SKAction.scale(to: 1.0, duration: 0.05)
+            bounceScale
         ])
         
         if let completion = completion {
-            let sequence = SKAction.sequence([bounceSequence, SKAction.run(completion)])
+            let sequence = SKAction.sequence([fullSequence, SKAction.run(completion)])
             node.run(sequence, withKey: "drop")
         } else {
-            node.run(bounceSequence, withKey: "drop")
+            node.run(fullSequence, withKey: "drop")
         }
     }
     
@@ -376,6 +383,42 @@ class AnimationSystem {
     /// 恢复所有动画
     func resumeAllAnimations() {
         // 实现动画恢复逻辑
+    }
+    
+    // MARK: - 调试和修复方法
+    
+    /// 检测并修复异常缩放的节点
+    func detectAndFixScaleIssues(in scene: SKScene) {
+        scene.enumerateChildNodes(withName: "gem_*") { node, _ in
+            if let gemNode = node as? SKSpriteNode {
+                // 检测异常缩放
+                if abs(gemNode.xScale - 1.0) > 0.1 || abs(gemNode.yScale - 1.0) > 0.1 {
+                    print("⚠️ 检测到异常缩放的宝石: \(gemNode.name ?? "unknown"), scale: (\(gemNode.xScale), \(gemNode.yScale))")
+                    
+                    // 修复缩放
+                    gemNode.setScale(1.0)
+                    gemNode.xScale = 1.0
+                    gemNode.yScale = 1.0
+                    
+                    print("✅ 已修复宝石缩放: \(gemNode.name ?? "unknown")")
+                }
+            }
+        }
+    }
+    
+    /// 强制重置所有宝石节点的变换
+    func resetAllGemTransforms(in scene: SKScene) {
+        scene.enumerateChildNodes(withName: "gem_*") { node, _ in
+            if let gemNode = node as? SKSpriteNode {
+                gemNode.removeAllActions()
+                gemNode.setScale(1.0)
+                gemNode.xScale = 1.0
+                gemNode.yScale = 1.0
+                gemNode.zRotation = 0
+                gemNode.alpha = 1.0
+            }
+        }
+        print("🔧 已重置所有宝石节点的变换")
     }
 }
 

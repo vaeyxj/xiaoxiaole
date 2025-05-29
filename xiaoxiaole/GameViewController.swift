@@ -87,6 +87,7 @@ class GameViewController: UIViewController {
     
     private func initializeGameSystems() {
         // 初始化场景管理器
+        gameSceneManager = GameSceneManager.shared
         gameSceneManager.initialize(with: self)
         
         // 设置音频中断处理
@@ -97,7 +98,7 @@ class GameViewController: UIViewController {
             object: nil
         )
         
-        print("�� 游戏系统初始化完成")
+        print("🎮 游戏系统初始化完成")
     }
     
     @objc private func handleAudioInterruption(notification: Notification) {

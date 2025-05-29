@@ -206,12 +206,15 @@ class AssetManager {
             node = SKSpriteNode()
         }
         
-        // 配置节点
+        // 完全重置节点属性
         node.texture = getGemTexture(type)
         node.size = CGSize(width: 30, height: 30)
         node.alpha = 1.0
-        node.setScale(1.0)
-        node.zRotation = 0
+        node.setScale(1.0)  // 重置缩放
+        node.xScale = 1.0   // 确保X轴缩放正确
+        node.yScale = 1.0   // 确保Y轴缩放正确
+        node.zRotation = 0  // 重置旋转
+        node.position = CGPoint.zero  // 重置位置
         
         return node
     }
@@ -222,8 +225,16 @@ class AssetManager {
             return
         }
         
+        // 完全重置节点状态
         node.removeAllActions()
         node.removeFromParent()
+        node.setScale(1.0)
+        node.xScale = 1.0
+        node.yScale = 1.0
+        node.zRotation = 0
+        node.alpha = 1.0
+        node.position = CGPoint.zero
+        
         gemNodePool.append(node)
     }
     
