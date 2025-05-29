@@ -8,6 +8,7 @@
 import UIKit
 import SpriteKit
 import GameplayKit
+import AVFoundation
 
 class GameViewController: UIViewController {
     
@@ -20,8 +21,21 @@ class GameViewController: UIViewController {
         super.viewDidLoad()
         
         setupSKView()
-        setupGameSystems()
-        startGame()
+        initializeGameSystems()
+        
+        // 应用美术资源配置
+        ArtResourceConfig.applyAllAssets()
+        
+        // 验证美术资源
+        let missingAssets = ArtResourceConfig.validateAllAssets()
+        if !missingAssets.isEmpty {
+            print("⚠️ 检测到缺失的美术资源，将使用占位符")
+        }
+        
+        // 启动游戏
+        gameSceneManager.transitionToScene(.menu, transition: .fade)
+        
+        print("🎮 游戏控制器初始化完成")
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -30,6 +44,9 @@ class GameViewController: UIViewController {
         if let currentScene = gameSceneManager.getCurrentScene() {
             currentScene.isPaused = false
         }
+        
+        // 恢复动画系统
+        AnimationSystem.shared.resumeAllAnimations()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -38,6 +55,9 @@ class GameViewController: UIViewController {
         if let currentScene = gameSceneManager.getCurrentScene() {
             currentScene.isPaused = true
         }
+        
+        // 暂停动画系统
+        AnimationSystem.shared.pauseAllAnimations()
     }
     
     override func viewDidLayoutSubviews() {
@@ -52,41 +72,67 @@ class GameViewController: UIViewController {
         // 直接使用Storyboard中已设置的SKView
         skView = view as! SKView
         
-        // 配置SKView
+        // 配置SKView性能设置
         skView.showsFPS = false  // 发布版本关闭FPS显示
         skView.showsNodeCount = false  // 发布版本关闭节点数显示
         skView.ignoresSiblingOrder = true
         
+        // 性能优化设置
+        skView.shouldCullNonVisibleNodes = true  // 剔除不可见节点
+        skView.preferredFramesPerSecond = 60     // 设置帧率
+        
         print("🎮 SKView设置完成")
         print("🎮 SKView大小: \(skView.bounds.size)")
-        print("🎮 SKView类型: \(type(of: skView))")
     }
     
-    private func setupGameSystems() {
-        // 初始化游戏场景管理器
-        gameSceneManager = GameSceneManager.shared
+    private func initializeGameSystems() {
+        // 初始化场景管理器
         gameSceneManager.initialize(with: self)
         
-        // 初始化其他系统
-        _ = AudioSystem.shared
-        _ = GameManager.shared
-        _ = SaveManager.shared
+        // 设置音频中断处理
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
         
-        print("🎮 游戏系统初始化完成")
+        print("�� 游戏系统初始化完成")
     }
     
-    private func startGame() {
-        // 启动主菜单场景
-        gameSceneManager.transitionToScene(.menu, transition: .none)
+    @objc private func handleAudioInterruption(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
         
-        print("🎮 游戏启动完成")
+        switch type {
+        case .began:
+            // 音频中断开始
+            AudioSystem.shared.pauseBackgroundMusic()
+        case .ended:
+            // 音频中断结束
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    AudioSystem.shared.resumeBackgroundMusic()
+                }
+            }
+        @unknown default:
+            break
+        }
     }
     
     // MARK: - 内存管理
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
-        // 清理场景缓存
-        gameSceneManager.clearSceneCache()
+        
+        // 处理内存警告
+        AssetManager.shared.handleMemoryWarning()
+        AnimationSystem.shared.stopAllAnimations()
+        
+        print("⚠️ 收到内存警告，已清理缓存")
     }
     
     // MARK: - 状态栏

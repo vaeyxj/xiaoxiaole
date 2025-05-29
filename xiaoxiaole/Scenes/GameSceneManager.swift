@@ -629,33 +629,25 @@ class GameplayScene: BaseGameScene {
     private func createGem(at position: Position, type: GemType) {
         guard let cellPosition = cellPositions["\(position.x)_\(position.y)"] else { return }
         
-        let gem = SKSpriteNode(texture: AssetManager.shared.getGemTexture(type))
-        gem.size = CGSize(width: 30, height: 30)
-        gem.position = cellPosition
-        gem.zPosition = 5
+        // 使用对象池获取宝石节点
+        let gem = AssetManager.shared.getGemNode(type: type)
         gem.name = "gem_\(position.x)_\(position.y)"
+        gem.zPosition = 5
         
-        gem.alpha = 0
-        gem.setScale(0.1)
         addChild(gem)
         
-        let fadeIn = SKAction.fadeIn(withDuration: 0.3)
-        let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
-        let group = SKAction.group([fadeIn, scaleUp])
-        gem.run(group)
+        // 使用动画系统播放生成动画
+        AnimationSystem.shared.animateGemSpawn(gem, at: cellPosition)
         
         gameBoard[position.x][position.y] = type
     }
     
     private func removeGem(at position: Position) {
-        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
-            let scaleDown = SKAction.scale(to: 0.1, duration: 0.2)
-            let fadeOut = SKAction.fadeOut(withDuration: 0.2)
-            let group = SKAction.group([scaleDown, fadeOut])
-            let remove = SKAction.removeFromParent()
-            let sequence = SKAction.sequence([group, remove])
-            
-            gem.run(sequence)
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") as? SKSpriteNode {
+            // 使用动画系统播放消除动画
+            AnimationSystem.shared.animateGemMatch([gem]) {
+                // 动画完成后会自动回收节点到对象池
+            }
         }
         
         gameBoard[position.x][position.y] = nil
@@ -670,9 +662,14 @@ class GameplayScene: BaseGameScene {
             if nodeName.hasPrefix("gem_") {
                 handleGemTouch(nodeName: nodeName, location: location)
             } else if nodeName == "pauseButton" {
-                handlePauseButton()
+                // 使用动画系统播放按钮动画
+                AnimationSystem.shared.animateButtonPress(touchedNode) {
+                    self.handlePauseButton()
+                }
             } else if nodeName == "resetButton" {
-                handleResetButton()
+                AnimationSystem.shared.animateButtonPress(touchedNode) {
+                    self.handleResetButton()
+                }
             }
         }
     }
@@ -704,20 +701,14 @@ class GameplayScene: BaseGameScene {
     }
     
     private func highlightGem(at position: Position) {
-        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
-            let pulse = SKAction.sequence([
-                SKAction.scale(to: 1.2, duration: 0.3),
-                SKAction.scale(to: 1.0, duration: 0.3)
-            ])
-            let repeatPulse = SKAction.repeatForever(pulse)
-            gem.run(repeatPulse, withKey: "highlight")
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") as? SKSpriteNode {
+            AnimationSystem.shared.animateGemHighlight(gem)
         }
     }
     
     private func unhighlightGem(at position: Position) {
-        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
-            gem.removeAction(forKey: "highlight")
-            gem.setScale(1.0)
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") as? SKSpriteNode {
+            AnimationSystem.shared.removeGemHighlight(gem)
         }
     }
     
@@ -732,22 +723,18 @@ class GameplayScene: BaseGameScene {
         gameBoard[from.x][from.y] = gameBoard[to.x][to.y]
         gameBoard[to.x][to.y] = temp
         
-        if let gem1 = childNode(withName: "gem_\(from.x)_\(from.y)"),
-           let gem2 = childNode(withName: "gem_\(to.x)_\(to.y)"),
-           let pos1 = cellPositions["\(from.x)_\(from.y)"],
-           let pos2 = cellPositions["\(to.x)_\(to.y)"] {
+        if let gem1 = childNode(withName: "gem_\(from.x)_\(from.y)") as? SKSpriteNode,
+           let gem2 = childNode(withName: "gem_\(to.x)_\(to.y)") as? SKSpriteNode {
             
-            let move1 = SKAction.move(to: pos2, duration: 0.3)
-            let move2 = SKAction.move(to: pos1, duration: 0.3)
-            
-            gem1.run(move1)
-            gem2.run(move2)
-            
+            // 更新节点名称
             gem1.name = "gem_\(to.x)_\(to.y)"
             gem2.name = "gem_\(from.x)_\(from.y)"
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                self.checkForMatches()
+            // 使用动画系统播放交换动画
+            AnimationSystem.shared.animateGemSwap(gem1, gem2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.checkForMatches()
+                }
             }
         }
     }
@@ -816,21 +803,47 @@ class GameplayScene: BaseGameScene {
         let matchCount = positions.count
         let gemType = gameBoard[positions.first!.x][positions.first!.y] ?? .red
         
-        GameManager.shared.processMatch(type: .horizontal(count: matchCount), gemType: gemType, count: matchCount)
-        
+        // 收集要消除的宝石节点
+        var gemsToRemove: [SKSpriteNode] = []
         for position in positions {
-            removeGem(at: position)
+            if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") as? SKSpriteNode {
+                gemsToRemove.append(gem)
+            }
+            gameBoard[position.x][position.y] = nil
         }
         
-        updateGameUI()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.dropGems()
+        // 使用动画系统播放消除动画
+        AnimationSystem.shared.animateGemMatch(gemsToRemove) {
+            self.updateGameUI()
+            
+            // 添加得分弹出效果
+            if let firstGem = gemsToRemove.first {
+                let score = matchCount * 10
+                AnimationSystem.shared.animateScorePop(score: score, at: firstGem.position, parent: self)
+            }
+            
+            // 如果是连击，添加连击特效
+            if GameManager.shared.currentCombo > 1 {
+                if let firstGem = gemsToRemove.first {
+                    AnimationSystem.shared.animateComboEffect(
+                        at: firstGem.position,
+                        comboCount: GameManager.shared.currentCombo,
+                        parent: self
+                    )
+                }
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.dropGems()
+            }
         }
+        
+        GameManager.shared.processMatch(type: .horizontal(count: matchCount), gemType: gemType, count: matchCount)
     }
     
     private func dropGems() {
         var needsNewGems = false
+        var dropAnimations: [SKAction] = []
         
         for col in 0..<8 {
             var writeIndex = 7
@@ -841,11 +854,13 @@ class GameplayScene: BaseGameScene {
                         gameBoard[writeIndex][col] = gameBoard[row][col]
                         gameBoard[row][col] = nil
                         
-                        if let gem = childNode(withName: "gem_\(row)_\(col)"),
+                        if let gem = childNode(withName: "gem_\(row)_\(col)") as? SKSpriteNode,
                            let newPosition = cellPositions["\(writeIndex)_\(col)"] {
-                            let move = SKAction.move(to: newPosition, duration: 0.2)
-                            gem.run(move)
+                            
                             gem.name = "gem_\(writeIndex)_\(col)"
+                            
+                            // 使用动画系统播放下落动画
+                            AnimationSystem.shared.animateGemDrop(gem, to: newPosition)
                         }
                     }
                     writeIndex -= 1
@@ -859,15 +874,14 @@ class GameplayScene: BaseGameScene {
                     gameBoard[row][col] = gemType
                     
                     if let cellPosition = cellPositions["\(row)_\(col)"] {
-                        let gem = SKSpriteNode(texture: AssetManager.shared.getGemTexture(gemType))
-                        gem.size = CGSize(width: 30, height: 30)
-                        gem.position = CGPoint(x: cellPosition.x, y: cellPosition.y + 400)
-                        gem.zPosition = 5
+                        // 使用对象池创建新宝石
+                        let gem = AssetManager.shared.getGemNode(type: gemType)
                         gem.name = "gem_\(row)_\(col)"
+                        gem.zPosition = 5
                         addChild(gem)
                         
-                        let drop = SKAction.move(to: cellPosition, duration: 0.4)
-                        gem.run(drop)
+                        // 使用动画系统播放生成动画
+                        AnimationSystem.shared.animateGemSpawn(gem, at: cellPosition)
                     }
                     needsNewGems = true
                 }
