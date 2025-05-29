@@ -8,6 +8,12 @@
 import SpriteKit
 import GameplayKit
 
+// MARK: - 辅助结构体
+struct Position: Hashable {
+    let x: Int
+    let y: Int
+}
+
 /// 游戏场景管理器 - 负责不同游戏场景的切换和管理
 class GameSceneManager {
     static let shared = GameSceneManager()
@@ -37,6 +43,19 @@ class GameSceneManager {
         case doorway        // 门户效果
         case crossFade      // 交叉淡化
     }
+    
+    // MARK: - 属性
+    weak var sceneManager: GameSceneManager?
+    private var isSceneSetup = false
+    
+    // 游戏系统
+    private var boardSystem: MatchBoardSystem!
+    private var combatUI: CombatUISystem!
+    
+    // 游戏状态
+    private var gameBoard: [[GemType?]] = []
+    private var cellPositions: [String: CGPoint] = [:]
+    private var selectedGem: Position?
     
     // MARK: - 私有属性
     private weak var gameViewController: GameViewController?
@@ -72,11 +91,6 @@ class GameSceneManager {
     
     // MARK: - 场景创建
     private func createScene(type: SceneType) -> SKScene {
-        // 完全禁用缓存，强制每次创建新场景
-        // if let cachedScene = sceneCache[type] {
-        //     return cachedScene
-        // }
-        
         let scene: SKScene
         
         switch type {
@@ -105,9 +119,6 @@ class GameSceneManager {
         // 设置场景基本属性
         setupScene(scene, type: type)
         
-        // 暂时不缓存场景
-        // cacheScene(scene, type: type)
-        
         return scene
     }
     
@@ -115,7 +126,7 @@ class GameSceneManager {
         guard let view = gameViewController?.skView else { return }
         
         scene.size = view.bounds.size
-        scene.scaleMode = .resizeFill  // 改为resizeFill确保填充整个屏幕
+        scene.scaleMode = .resizeFill
         
         // 设置场景管理器引用
         if let gameScene = scene as? BaseGameScene {
@@ -123,18 +134,6 @@ class GameSceneManager {
         }
         
         print("🎬 创建场景: \(type)")
-        print("🎬 场景大小设置为: \(scene.size)")
-        print("🎬 场景缩放模式: \(scene.scaleMode.rawValue)")
-    }
-    
-    private func cacheScene(_ scene: SKScene, type: SceneType) {
-        // 如果缓存已满，移除最旧的场景
-        if sceneCache.count >= Config.maxCachedScenes {
-            let oldestType = sceneCache.keys.first!
-            sceneCache.removeValue(forKey: oldestType)
-        }
-        
-        sceneCache[type] = scene
     }
     
     // MARK: - 场景切换
@@ -151,51 +150,33 @@ class GameSceneManager {
         
         isTransitioning = true
         
-        // 保存旧的场景类型用于日志
         let oldSceneType = currentSceneType
         
-        // 添加到场景栈
         if pushToStack && currentSceneType != sceneType {
             sceneStack.append(currentSceneType)
         }
         
-        // 强制清除缓存并重新创建场景（确保修改生效）
-        sceneCache.removeValue(forKey: sceneType)
         let newScene = createScene(type: sceneType)
-        
-        // 确保场景大小正确
         newScene.size = gameViewController.skView.bounds.size
-        newScene.scaleMode = .resizeFill  // 确保填充整个屏幕
-        
-        print("🎬 准备切换场景: \(oldSceneType) -> \(sceneType)")
-        print("🎬 新场景大小: \(newScene.size)")
-        print("🎬 SKView大小: \(gameViewController.skView.bounds.size)")
-        print("🎬 场景类型: \(type(of: newScene))")
-        print("🎬 场景缩放模式: \(newScene.scaleMode.rawValue)")
+        newScene.scaleMode = .resizeFill
         
         let transitionAction = createTransition(type: transition)
         
-        // 场景切换前的清理
         if let currentScene = currentScene as? BaseGameScene {
             currentScene.willDisappear()
         }
         
-        // 执行场景切换
         gameViewController.skView.presentScene(newScene, transition: transitionAction)
         
-        // 更新当前场景信息
         currentScene = newScene
         currentSceneType = sceneType
         
-        // 场景切换后的初始化
         if let newGameScene = newScene as? BaseGameScene {
             newGameScene.didAppear()
         }
         
-        // 播放对应的背景音乐
         playBackgroundMusicForScene(sceneType)
         
-        // 延迟重置转换状态
         DispatchQueue.main.asyncAfter(deadline: .now() + Config.transitionDuration) {
             self.isTransitioning = false
             print("🎬 场景切换完成: \(oldSceneType) -> \(sceneType)")
@@ -248,146 +229,114 @@ class GameSceneManager {
         sceneStack.removeAll()
     }
     
-    // MARK: - 背景音乐管理
+    // MARK: - 音乐管理
     private func playBackgroundMusicForScene(_ sceneType: SceneType) {
-        let audioSystem = AudioSystem.shared
-        
         switch sceneType {
         case .menu:
-            audioSystem.playBackgroundMusic("menu_theme")
+            AudioSystem.shared.playBackgroundMusic("menu_theme")
         case .gameplay, .combat:
-            audioSystem.playBackgroundMusic("dungeon_theme")
-        case .shop, .inventory:
-            audioSystem.playBackgroundMusic("shop_theme")
+            AudioSystem.shared.playBackgroundMusic("dungeon_theme")
         case .victory:
-            audioSystem.playBackgroundMusic("victory_theme", loop: false)
-        case .gameOver:
-            audioSystem.playBackgroundMusic("game_over_theme", loop: false)
-        case .settings, .loading:
-            // 设置和加载场景不改变背景音乐
+            AudioSystem.shared.playBackgroundMusic("victory_theme")
+        default:
             break
-        case .none:
-            fatalError("无场景状态不应出现在背景音乐管理中")
         }
     }
     
-    // MARK: - 场景状态管理
-    func pauseCurrentScene() {
-        currentScene?.isPaused = true
-        if let gameScene = currentScene as? BaseGameScene {
-            gameScene.pauseGame()
-        }
-    }
-    
-    func resumeCurrentScene() {
-        currentScene?.isPaused = false
-        if let gameScene = currentScene as? BaseGameScene {
-            gameScene.resumeGame()
-        }
+    // MARK: - 场景信息
+    func getCurrentScene() -> SKScene? {
+        return currentScene
     }
     
     func getCurrentSceneType() -> SceneType {
         return currentSceneType
     }
     
-    func getCurrentScene() -> SKScene? {
-        return currentScene
+    func getSceneStackCount() -> Int {
+        return sceneStack.count
     }
     
-    // MARK: - 场景缓存管理
-    func clearSceneCache() {
-        sceneCache.removeAll()
-        print("🎬 场景缓存已清理")
+    func isSceneInStack(_ sceneType: SceneType) -> Bool {
+        return sceneStack.contains(sceneType)
     }
     
+    // MARK: - 缓存管理
     func removeSceneFromCache(_ sceneType: SceneType) {
         sceneCache.removeValue(forKey: sceneType)
     }
     
-    // MARK: - 内存管理
-    func handleMemoryWarning() {
-        // 清理非当前场景的缓存
-        let currentType = currentSceneType
-        sceneCache = sceneCache.filter { $0.key == currentType }
-        print("🎬 内存警告：清理场景缓存")
-    }
-    
-    // MARK: - 调试信息
-    func getDebugInfo() -> String {
-        return """
-        🎬 场景管理器状态:
-        当前场景: \(currentSceneType)
-        场景栈: \(sceneStack)
-        缓存场景数: \(sceneCache.count)
-        正在转换: \(isTransitioning ? "是" : "否")
-        """
+    func clearSceneCache() {
+        sceneCache.removeAll()
     }
 }
 
-// MARK: - 基础游戏场景协议
-protocol BaseGameScene: AnyObject {
-    var sceneManager: GameSceneManager? { get set }
+// MARK: - 基础游戏场景类
+class BaseGameScene: SKScene {
+    weak var sceneManager: GameSceneManager?
     
-    func willAppear()
-    func didAppear()
-    func willDisappear()
-    func didDisappear()
-    func pauseGame()
-    func resumeGame()
+    func willAppear() {
+        // 子类重写此方法来处理场景即将显示的逻辑
+    }
+    
+    func didAppear() {
+        // 子类重写此方法来处理场景已显示的逻辑
+    }
+    
+    func willDisappear() {
+        // 子类重写此方法来处理场景即将消失的逻辑
+    }
+    
+    func didDisappear() {
+        // 子类重写此方法来处理场景已消失的逻辑
+    }
 }
 
 // MARK: - 具体场景类
-class MenuScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    
+class MenuScene: BaseGameScene {
     override func didMove(to view: SKView) {
+        super.didMove(to: view)
         setupMenuScene()
     }
     
     private func setupMenuScene() {
-        backgroundColor = UIColor.systemOrange  // 使用橙色背景，与游戏场景的蓝色形成对比
+        backgroundColor = UIColor.systemOrange
         
-        // 创建标题
         let titleLabel = SKLabelNode(fontNamed: AssetManager.FontNames.title)
         titleLabel.text = "🏰 宝石迷城探险 🏰"
-        titleLabel.fontSize = 32
-        titleLabel.fontColor = .white
+        titleLabel.fontSize = 28
+        titleLabel.fontColor = AssetManager.Colors.textPrimary
         titleLabel.position = CGPoint(x: size.width/2, y: size.height * 0.7)
+        titleLabel.zPosition = 10
         addChild(titleLabel)
         
-        // 添加副标题
-        let subtitleLabel = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        subtitleLabel.text = "主菜单场景"
-        subtitleLabel.fontSize = 18
-        subtitleLabel.fontColor = .yellow
-        subtitleLabel.position = CGPoint(x: size.width/2, y: size.height * 0.65)
-        addChild(subtitleLabel)
-        
-        // 创建开始游戏按钮
-        let startButton = createButton(text: "🎮 开始游戏", position: CGPoint(x: size.width/2, y: size.height * 0.5))
-        startButton.name = "startButton"
+        let startButton = createButton(
+            text: "🎮 开始游戏",
+            position: CGPoint(x: size.width/2, y: size.height * 0.5),
+            name: "startButton"
+        )
         addChild(startButton)
         
-        // 创建设置按钮
-        let settingsButton = createButton(text: "⚙️ 设置", position: CGPoint(x: size.width/2, y: size.height * 0.4))
-        settingsButton.name = "settingsButton"
+        let settingsButton = createButton(
+            text: "⚙️ 设置",
+            position: CGPoint(x: size.width/2, y: size.height * 0.4),
+            name: "settingsButton"
+        )
         addChild(settingsButton)
-        
-        print("🎮 主菜单场景设置完成")
     }
     
-    private func createButton(text: String, position: CGPoint) -> SKNode {
-        let button = SKShapeNode(rectOf: CGSize(width: 200, height: 50), cornerRadius: 10)
+    private func createButton(text: String, position: CGPoint, name: String) -> SKNode {
+        let button = SKShapeNode(rectOf: CGSize(width: 200, height: 60), cornerRadius: 10)
         button.fillColor = AssetManager.Colors.primaryBlue
-        button.strokeColor = AssetManager.Colors.textPrimary
+        button.strokeColor = UIColor.white
+        button.lineWidth = 3
         button.position = position
+        button.name = name
         
         let label = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
         label.text = text
-        label.fontSize = 18
+        label.fontSize = 20
         label.fontColor = .white
         label.verticalAlignmentMode = .center
-        label.horizontalAlignmentMode = .center
         button.addChild(label)
         
         return button
@@ -398,411 +347,318 @@ class MenuScene: SKScene, BaseGameScene {
         let location = touch.location(in: self)
         let touchedNode = atPoint(location)
         
-        print("🎮 触摸位置: \(location)")
-        print("🎮 触摸节点: \(touchedNode.name ?? "无名称")")
-        print("🎮 触摸节点类型: \(type(of: touchedNode))")
-        
         AudioSystem.shared.playButtonTapSound()
         
-        // 检查是否点击了按钮或按钮内的标签
-        var targetNode = touchedNode
-        if touchedNode.name == nil && touchedNode.parent?.name != nil {
-            targetNode = touchedNode.parent!
-            print("🎮 使用父节点: \(targetNode.name ?? "无名称")")
-        }
-        
-        // 如果还是没有名称，检查是否在按钮区域内
-        if targetNode.name == nil {
-            // 检查所有子节点，看是否点击在按钮区域内
-            for child in children {
-                if let button = child as? SKShapeNode, button.contains(location) {
-                    targetNode = button
-                    print("🎮 通过区域检测找到按钮: \(targetNode.name ?? "无名称")")
-                    break
-                }
-            }
-        }
-        
-        switch targetNode.name {
+        switch touchedNode.name {
         case "startButton":
-            print("🎮 点击开始游戏按钮")
+            print("🎮 开始游戏")
             sceneManager?.transitionToScene(.gameplay, transition: .fade)
         case "settingsButton":
-            print("🎮 点击设置按钮")
+            print("⚙️ 打开设置")
             sceneManager?.transitionToScene(.settings, transition: .push)
         default:
-            print("🎮 点击了其他区域")
             break
         }
     }
-    
-    // MARK: - BaseGameScene
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
 }
 
-class GameplayScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    
-    private var boardSystem: MatchBoardSystem!
-    private var combatUI: CombatUISystem!
-    private var isSceneSetup = false  // 添加标志防止重复设置
+class GameplayScene: BaseGameScene {
+    // 游戏状态
+    private var gameBoard: [[GemType?]] = []
+    private var cellPositions: [String: CGPoint] = [:]
+    private var selectedGem: Position?
+    private var isSceneSetup = false
     
     override func didMove(to view: SKView) {
-        // 强制设置场景属性
-        size = view.bounds.size
-        scaleMode = .resizeFill
-        
-        if !isSceneSetup {
-            setupGameplayScene()
-            isSceneSetup = true
-        }
-        
-        print("🎮 游戏场景加载完成")
-    }
-    
-    func refreshSceneContent() {
-        print("🎮 刷新游戏场景内容")
-        print("🎮 当前场景大小: \(size)")
-        
-        // 清除所有子节点
-        removeAllChildren()
-        
-        // 重新设置场景内容
+        super.didMove(to: view)
         setupGameplayScene()
-        isSceneSetup = true
     }
     
     private func setupGameplayScene() {
-        // 设置游戏场景背景
-        backgroundColor = AssetManager.Colors.backgroundPrimary
+        guard !isSceneSetup else { return }
+        isSceneSetup = true
         
-        // 添加游戏标题
-        let titleLabel = SKLabelNode(fontNamed: AssetManager.FontNames.title)
-        titleLabel.text = "🏰 宝石迷城探险 🏰"
-        titleLabel.fontSize = 28
-        titleLabel.fontColor = AssetManager.Colors.textPrimary
-        titleLabel.position = CGPoint(x: size.width/2, y: size.height * 0.92)
-        titleLabel.zPosition = 100
-        addChild(titleLabel)
+        // 设置渐变背景
+        backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.98, alpha: 1.0)
         
-        // 添加返回按钮
-        let backButton = createBackButton()
-        backButton.name = "backButton"
-        backButton.zPosition = 100
-        addChild(backButton)
-        
-        // 初始化游戏系统
-        boardSystem = MatchBoardSystem.shared
-        boardSystem.setGameManager(GameManager.shared)
-        
-        // 初始化战斗UI
-        combatUI = CombatUISystem()
-        combatUI.setGameManager(GameManager.shared)
-        combatUI.position = CGPoint(x: size.width * 0.85, y: size.height * 0.8)
-        combatUI.zPosition = 50
-        addChild(combatUI)
-        
-        // 创建游戏棋盘
-        setupGameBoard()
+        createBackgroundElements()
+        createGameBoard()
+        createGameUI()
+        createControlButtons()
+        initializeBoard()
         
         print("🎮 游戏场景设置完成")
     }
     
-    private func createBackButton() -> SKNode {
-        let button = SKShapeNode(rectOf: CGSize(width: 160, height: 60), cornerRadius: 10)
-        button.fillColor = UIColor.systemRed
-        button.strokeColor = UIColor.white
-        button.lineWidth = 3
-        button.position = CGPoint(x: 100, y: size.height - 80)
+    private func createBackgroundElements() {
+        // 创建顶部装饰条
+        let topBar = SKShapeNode(rectOf: CGSize(width: size.width, height: 80))
+        topBar.position = CGPoint(x: size.width * 0.5, y: size.height - 40)
+        topBar.fillColor = UIColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.9)
+        topBar.strokeColor = UIColor.clear
+        topBar.zPosition = 0
+        addChild(topBar)
         
-        let label = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        label.text = "🔙 返回菜单"
-        label.fontSize = 18
-        label.fontColor = .white
-        label.verticalAlignmentMode = .center
-        label.horizontalAlignmentMode = .center
-        button.addChild(label)
-        
-        return button
+        // 添加装饰图案
+        for i in 0..<5 {
+            let star = SKLabelNode(text: "✨")
+            star.fontSize = 16
+            star.position = CGPoint(x: 50 + CGFloat(i) * (size.width - 100) / 4, y: size.height - 40)
+            star.zPosition = 1
+            addChild(star)
+        }
     }
     
-    private func setupGameBoard() {
-        // 计算棋盘位置和大小
-        let boardSize = min(size.width * 0.9, size.height * 0.6)
-        let boardPosition = CGPoint(x: size.width/2, y: size.height * 0.45)
+    private func createGameBoard() {
+        // 棋盘容器
+        let boardContainer = SKNode()
+        boardContainer.position = CGPoint(x: size.width * 0.5, y: size.height * 0.55)
+        boardContainer.zPosition = 2
+        addChild(boardContainer)
         
-        // 创建棋盘背景
-        let boardBackground = SKShapeNode(rectOf: CGSize(width: boardSize, height: boardSize), cornerRadius: 15)
-        boardBackground.fillColor = AssetManager.Colors.backgroundSecondary
-        boardBackground.strokeColor = AssetManager.Colors.borderPrimary
+        // 棋盘背景 - 使用圆角矩形和阴影效果
+        let boardSize = CGSize(width: 340, height: 340)
+        let boardBackground = SKShapeNode(rectOf: boardSize, cornerRadius: 20)
+        boardBackground.fillColor = UIColor(red: 0.98, green: 0.98, blue: 1.0, alpha: 1.0)
+        boardBackground.strokeColor = UIColor(red: 0.8, green: 0.8, blue: 0.9, alpha: 1.0)
         boardBackground.lineWidth = 3
-        boardBackground.position = boardPosition
-        boardBackground.zPosition = 10
-        addChild(boardBackground)
+        boardBackground.name = "boardBackground"
         
-        // 添加棋盘标题
-        let boardLabel = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        boardLabel.text = "消消乐棋盘"
-        boardLabel.fontSize = 18
-        boardLabel.fontColor = AssetManager.Colors.textSecondary
-        boardLabel.position = CGPoint(x: boardPosition.x, y: boardPosition.y + boardSize/2 + 20)
-        boardLabel.zPosition = 20
-        addChild(boardLabel)
+        // 添加阴影效果
+        let shadow = SKShapeNode(rectOf: boardSize, cornerRadius: 20)
+        shadow.position = CGPoint(x: 3, y: -3)
+        shadow.fillColor = UIColor(red: 0.7, green: 0.7, blue: 0.8, alpha: 0.3)
+        shadow.strokeColor = UIColor.clear
+        shadow.zPosition = -1
+        boardContainer.addChild(shadow)
         
-        // 创建8x8的棋盘网格（暂时用简单的方格表示）
-        let gridSize = 8
-        let cellSize = (boardSize - 40) / CGFloat(gridSize)
-        let startX = boardPosition.x - boardSize/2 + 20 + cellSize/2
-        let startY = boardPosition.y - boardSize/2 + 20 + cellSize/2
+        boardContainer.addChild(boardBackground)
         
-        for row in 0..<gridSize {
-            for col in 0..<gridSize {
-                let cell = SKShapeNode(rectOf: CGSize(width: cellSize - 2, height: cellSize - 2), cornerRadius: 5)
-                cell.fillColor = (row + col) % 2 == 0 ? AssetManager.Colors.cellLight : AssetManager.Colors.cellDark
-                cell.strokeColor = AssetManager.Colors.borderSecondary
+        // 创建网格
+        let cellSize: CGFloat = 38
+        let spacing: CGFloat = 2
+        let startX = -boardSize.width * 0.5 + cellSize * 0.5 + 10
+        let startY = boardSize.height * 0.5 - cellSize * 0.5 - 10
+        
+        gameBoard = Array(repeating: Array(repeating: nil, count: 8), count: 8)
+        
+        for row in 0..<8 {
+            for col in 0..<8 {
+                let x = startX + CGFloat(col) * (cellSize + spacing)
+                let y = startY - CGFloat(row) * (cellSize + spacing)
+                
+                let cell = SKShapeNode(rectOf: CGSize(width: cellSize, height: cellSize), cornerRadius: 8)
+                cell.position = CGPoint(x: x, y: y)
+                
+                // 棋盘格交替颜色
+                if (row + col) % 2 == 0 {
+                    cell.fillColor = UIColor(red: 0.92, green: 0.92, blue: 0.96, alpha: 1.0)
+                } else {
+                    cell.fillColor = UIColor(red: 0.88, green: 0.88, blue: 0.94, alpha: 1.0)
+                }
+                
+                cell.strokeColor = UIColor(red: 0.8, green: 0.8, blue: 0.9, alpha: 0.5)
                 cell.lineWidth = 1
-                cell.position = CGPoint(
-                    x: startX + CGFloat(col) * cellSize,
-                    y: startY + CGFloat(row) * cellSize
-                )
-                cell.zPosition = 15
                 cell.name = "cell_\(row)_\(col)"
-                addChild(cell)
+                boardContainer.addChild(cell)
+                
+                // 保存绝对位置（相对于场景）
+                let absolutePosition = CGPoint(
+                    x: boardContainer.position.x + x,
+                    y: boardContainer.position.y + y
+                )
+                cellPositions["\(row)_\(col)"] = absolutePosition
             }
         }
-        
-        // 添加游戏控制按钮区域
-        setupGameControls()
     }
     
-    private func setupGameControls() {
-        // 创建控制按钮容器
-        let controlsY = size.height * 0.15
+    private func createGameUI() {
+        // UI容器
+        let uiContainer = SKNode()
+        uiContainer.position = CGPoint(x: size.width * 0.5, y: size.height * 0.85)
+        uiContainer.zPosition = 10
+        addChild(uiContainer)
+        
+        // 得分面板
+        let scorePanel = createInfoPanel(
+            title: "得分",
+            value: "0",
+            position: CGPoint(x: -80, y: 0),
+            color: UIColor(red: 0.2, green: 0.7, blue: 0.3, alpha: 1.0)
+        )
+        scorePanel.name = "scorePanel"
+        uiContainer.addChild(scorePanel)
+        
+        // 连击面板
+        let comboPanel = createInfoPanel(
+            title: "连击",
+            value: "0",
+            position: CGPoint(x: 80, y: 0),
+            color: UIColor(red: 0.8, green: 0.3, blue: 0.2, alpha: 1.0)
+        )
+        comboPanel.name = "comboPanel"
+        uiContainer.addChild(comboPanel)
+        
+        // 关卡信息
+        let levelLabel = SKLabelNode(fontNamed: AssetManager.FontNames.title)
+        levelLabel.text = "🏰 关卡 1-1"
+        levelLabel.fontSize = 18
+        levelLabel.fontColor = UIColor(red: 0.3, green: 0.3, blue: 0.5, alpha: 1.0)
+        levelLabel.position = CGPoint(x: 0, y: -40)
+        levelLabel.name = "levelLabel"
+        uiContainer.addChild(levelLabel)
+    }
+    
+    private func createInfoPanel(title: String, value: String, position: CGPoint, color: UIColor) -> SKNode {
+        let panel = SKNode()
+        panel.position = position
+        
+        // 面板背景
+        let background = SKShapeNode(rectOf: CGSize(width: 120, height: 50), cornerRadius: 15)
+        background.fillColor = color.withAlphaComponent(0.2)
+        background.strokeColor = color
+        background.lineWidth = 2
+        panel.addChild(background)
+        
+        // 标题
+        let titleLabel = SKLabelNode(fontNamed: AssetManager.FontNames.body)
+        titleLabel.text = title
+        titleLabel.fontSize = 12
+        titleLabel.fontColor = color
+        titleLabel.position = CGPoint(x: 0, y: 8)
+        titleLabel.name = "title"
+        panel.addChild(titleLabel)
+        
+        // 数值
+        let valueLabel = SKLabelNode(fontNamed: AssetManager.FontNames.title)
+        valueLabel.text = value
+        valueLabel.fontSize = 16
+        valueLabel.fontColor = color
+        valueLabel.position = CGPoint(x: 0, y: -12)
+        valueLabel.name = "value"
+        panel.addChild(valueLabel)
+        
+        return panel
+    }
+    
+    private func createControlButtons() {
+        // 按钮容器
+        let buttonContainer = SKNode()
+        buttonContainer.position = CGPoint(x: size.width * 0.5, y: size.height * 0.12)
+        buttonContainer.zPosition = 10
+        addChild(buttonContainer)
         
         // 暂停按钮
-        let pauseButton = createGameButton(text: "⏸️ 暂停", position: CGPoint(x: size.width * 0.25, y: controlsY))
-        pauseButton.name = "pauseButton"
-        addChild(pauseButton)
+        let pauseButton = createStyledButton(
+            icon: "⏸",
+            text: "暂停",
+            position: CGPoint(x: -80, y: 0),
+            color: UIColor(red: 0.9, green: 0.6, blue: 0.2, alpha: 1.0),
+            name: "pauseButton"
+        )
+        buttonContainer.addChild(pauseButton)
         
         // 重置按钮
-        let resetButton = createGameButton(text: "🔄 重置", position: CGPoint(x: size.width * 0.75, y: controlsY))
-        resetButton.name = "resetButton"
-        addChild(resetButton)
-    }
-    
-    private func createGameButton(text: String, position: CGPoint) -> SKNode {
-        let button = SKShapeNode(rectOf: CGSize(width: 120, height: 40), cornerRadius: 8)
-        button.fillColor = AssetManager.Colors.primaryBlue
-        button.strokeColor = AssetManager.Colors.borderPrimary
-        button.lineWidth = 2
-        button.position = position
-        
-        let label = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        label.text = text
-        label.fontSize = 16
-        label.fontColor = AssetManager.Colors.textPrimary
-        label.verticalAlignmentMode = .center
-        label.horizontalAlignmentMode = .center
-        button.addChild(label)
-        
-        return button
-    }
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        let location = touch.location(in: self)
-        let touchedNode = atPoint(location)
-        
-        AudioSystem.shared.playButtonTapSound()
-        
-        // 检查是否点击了按钮或按钮内的标签
-        var targetNode = touchedNode
-        if touchedNode.name == nil && touchedNode.parent?.name != nil {
-            targetNode = touchedNode.parent!
-        }
-        
-        // 如果还是没有名称，检查是否在按钮区域内
-        if targetNode.name == nil {
-            for child in children {
-                if let button = child as? SKShapeNode, button.contains(location) {
-                    targetNode = button
-                    break
-                }
-            }
-        }
-        
-        switch targetNode.name {
-        case "backButton":
-            print("🎮 返回主菜单")
-            sceneManager?.popScene(transition: .fade)
-        case "pauseButton":
-            print("🎮 暂停游戏")
-            pauseGame()
-        case "resetButton":
-            print("🎮 重置游戏")
-            resetGame()
-        default:
-            // 检查是否点击了棋盘格子
-            if let cellName = targetNode.name, cellName.hasPrefix("cell_") {
-                handleCellTap(cellName: cellName, location: location)
-            }
-            break
-        }
-    }
-    
-    private func handleCellTap(cellName: String, location: CGPoint) {
-        print("🎮 点击棋盘格子: \(cellName)")
-        // TODO: 实现棋盘格子点击逻辑
-        // 这里将来会连接到MatchBoardSystem的逻辑
-    }
-    
-    private func resetGame() {
-        print("🎮 重置游戏状态")
-        GameManager.shared.resetCurrentLevel()
-        combatUI.updateUI()
-        // TODO: 重置棋盘状态
-    }
-    
-    // MARK: - BaseGameScene
-    func willAppear() {
-        GameManager.shared.startNewGame()
-    }
-    
-    func didAppear() {
-        combatUI.updateUI()
-    }
-    
-    func willDisappear() {}
-    func didDisappear() {}
-    
-    func pauseGame() {
-        isPaused = true
-    }
-    
-    func resumeGame() {
-        isPaused = false
-    }
-}
-
-// 其他场景类的简化实现
-class CombatScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
-}
-
-class ShopScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
-}
-
-class InventoryScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
-}
-
-class SettingsScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    
-    override func didMove(to view: SKView) {
-        setupSettingsScene()
-    }
-    
-    private func setupSettingsScene() {
-        backgroundColor = AssetManager.Colors.backgroundSecondary
-        
-        // 创建标题
-        let titleLabel = SKLabelNode(fontNamed: AssetManager.FontNames.title)
-        titleLabel.text = "设置"
-        titleLabel.fontSize = 28
-        titleLabel.fontColor = AssetManager.Colors.textPrimary
-        titleLabel.position = CGPoint(x: size.width/2, y: size.height * 0.8)
-        addChild(titleLabel)
-        
-        // 音量设置区域
-        setupVolumeControls()
-        
-        // 返回按钮
-        let backButton = createButton(text: "返回", position: CGPoint(x: size.width/2, y: size.height * 0.2))
-        backButton.name = "backButton"
-        addChild(backButton)
-        
-        print("🎮 设置场景设置完成")
-    }
-    
-    private func setupVolumeControls() {
-        let audioSystem = AudioSystem.shared
-        
-        // 主音量标签
-        let masterVolumeLabel = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        masterVolumeLabel.text = "主音量: \(Int(audioSystem.getMasterVolume() * 100))%"
-        masterVolumeLabel.fontSize = 16
-        masterVolumeLabel.fontColor = AssetManager.Colors.textPrimary
-        masterVolumeLabel.position = CGPoint(x: size.width/2, y: size.height * 0.6)
-        masterVolumeLabel.name = "masterVolumeLabel"
-        addChild(masterVolumeLabel)
-        
-        // 音乐音量标签
-        let musicVolumeLabel = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        musicVolumeLabel.text = "音乐音量: \(Int(audioSystem.getMusicVolume() * 100))%"
-        musicVolumeLabel.fontSize = 16
-        musicVolumeLabel.fontColor = AssetManager.Colors.textPrimary
-        musicVolumeLabel.position = CGPoint(x: size.width/2, y: size.height * 0.5)
-        musicVolumeLabel.name = "musicVolumeLabel"
-        addChild(musicVolumeLabel)
-        
-        // 音效音量标签
-        let soundVolumeLabel = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        soundVolumeLabel.text = "音效音量: \(Int(audioSystem.getSoundEffectVolume() * 100))%"
-        soundVolumeLabel.fontSize = 16
-        soundVolumeLabel.fontColor = AssetManager.Colors.textPrimary
-        soundVolumeLabel.position = CGPoint(x: size.width/2, y: size.height * 0.4)
-        soundVolumeLabel.name = "soundVolumeLabel"
-        addChild(soundVolumeLabel)
-        
-        // 静音按钮
-        let muteButton = createButton(
-            text: audioSystem.isAudioMuted() ? "取消静音" : "静音", 
-            position: CGPoint(x: size.width/2, y: size.height * 0.3)
+        let resetButton = createStyledButton(
+            icon: "🔄",
+            text: "重置",
+            position: CGPoint(x: 80, y: 0),
+            color: UIColor(red: 0.6, green: 0.3, blue: 0.8, alpha: 1.0),
+            name: "resetButton"
         )
-        muteButton.name = "muteButton"
-        addChild(muteButton)
+        buttonContainer.addChild(resetButton)
     }
     
-    private func createButton(text: String, position: CGPoint) -> SKNode {
-        let button = SKShapeNode(rectOf: CGSize(width: 160, height: 40), cornerRadius: 8)
-        button.fillColor = AssetManager.Colors.primaryBlue
-        button.strokeColor = AssetManager.Colors.textPrimary
+    private func createStyledButton(icon: String, text: String, position: CGPoint, color: UIColor, name: String) -> SKNode {
+        let button = SKNode()
         button.position = position
+        button.name = name
         
-        let label = SKLabelNode(fontNamed: AssetManager.FontNames.ui)
-        label.text = text
-        label.fontSize = 16
-        label.fontColor = .white
-        label.verticalAlignmentMode = .center
-        label.horizontalAlignmentMode = .center
-        button.addChild(label)
+        // 按钮背景
+        let background = SKShapeNode(rectOf: CGSize(width: 120, height: 45), cornerRadius: 22)
+        background.fillColor = color
+        background.strokeColor = color.withAlphaComponent(0.8)
+        background.lineWidth = 2
+        button.addChild(background)
+        
+        // 按钮阴影
+        let shadow = SKShapeNode(rectOf: CGSize(width: 120, height: 45), cornerRadius: 22)
+        shadow.position = CGPoint(x: 2, y: -2)
+        shadow.fillColor = UIColor.black.withAlphaComponent(0.2)
+        shadow.strokeColor = UIColor.clear
+        shadow.zPosition = -1
+        button.addChild(shadow)
+        
+        // 图标
+        let iconLabel = SKLabelNode(text: icon)
+        iconLabel.fontSize = 20
+        iconLabel.position = CGPoint(x: -25, y: -8)
+        iconLabel.zPosition = 1
+        button.addChild(iconLabel)
+        
+        // 文字
+        let textLabel = SKLabelNode(fontNamed: AssetManager.FontNames.body)
+        textLabel.text = text
+        textLabel.fontSize = 14
+        textLabel.fontColor = UIColor.white
+        textLabel.position = CGPoint(x: 10, y: -6)
+        textLabel.zPosition = 1
+        button.addChild(textLabel)
         
         return button
+    }
+    
+    private func initializeBoard() {
+        for row in 0..<8 {
+            for col in 0..<8 {
+                let gemType = generateRandomGem()
+                createGem(at: Position(x: row, y: col), type: gemType)
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.checkForMatches()
+        }
+    }
+    
+    private func generateRandomGem() -> GemType {
+        let basicGems: [GemType] = [.red, .blue, .green, .yellow, .purple, .white]
+        return basicGems.randomElement() ?? .red
+    }
+    
+    private func createGem(at position: Position, type: GemType) {
+        guard let cellPosition = cellPositions["\(position.x)_\(position.y)"] else { return }
+        
+        let gem = SKSpriteNode(texture: AssetManager.shared.getGemTexture(type))
+        gem.size = CGSize(width: 30, height: 30)
+        gem.position = cellPosition
+        gem.zPosition = 5
+        gem.name = "gem_\(position.x)_\(position.y)"
+        
+        gem.alpha = 0
+        gem.setScale(0.1)
+        addChild(gem)
+        
+        let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
+        let group = SKAction.group([fadeIn, scaleUp])
+        gem.run(group)
+        
+        gameBoard[position.x][position.y] = type
+    }
+    
+    private func removeGem(at position: Position) {
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
+            let scaleDown = SKAction.scale(to: 0.1, duration: 0.2)
+            let fadeOut = SKAction.fadeOut(withDuration: 0.2)
+            let group = SKAction.group([scaleDown, fadeOut])
+            let remove = SKAction.removeFromParent()
+            let sequence = SKAction.sequence([group, remove])
+            
+            gem.run(sequence)
+        }
+        
+        gameBoard[position.x][position.y] = nil
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -810,89 +666,328 @@ class SettingsScene: SKScene, BaseGameScene {
         let location = touch.location(in: self)
         let touchedNode = atPoint(location)
         
-        print("🎮 触摸位置: \(location)")
-        print("🎮 触摸节点: \(touchedNode.name ?? "无名称")")
-        print("🎮 触摸节点类型: \(type(of: touchedNode))")
-        
-        AudioSystem.shared.playButtonTapSound()
-        
-        // 检查是否点击了按钮或按钮内的标签
-        var targetNode = touchedNode
-        if touchedNode.name == nil && touchedNode.parent?.name != nil {
-            targetNode = touchedNode.parent!
-            print("🎮 使用父节点: \(targetNode.name ?? "无名称")")
+        if let nodeName = touchedNode.name {
+            if nodeName.hasPrefix("gem_") {
+                handleGemTouch(nodeName: nodeName, location: location)
+            } else if nodeName == "pauseButton" {
+                handlePauseButton()
+            } else if nodeName == "resetButton" {
+                handleResetButton()
+            }
         }
+    }
+    
+    private func handleGemTouch(nodeName: String, location: CGPoint) {
+        let components = nodeName.components(separatedBy: "_")
+        guard components.count == 3,
+              let row = Int(components[1]),
+              let col = Int(components[2]) else { return }
         
-        // 如果还是没有名称，检查是否在按钮区域内
-        if targetNode.name == nil {
-            // 检查所有子节点，看是否点击在按钮区域内
-            for child in children {
-                if let button = child as? SKShapeNode, button.contains(location) {
-                    targetNode = button
-                    print("🎮 通过区域检测找到按钮: \(targetNode.name ?? "无名称")")
-                    break
+        if selectedGem == nil {
+            selectedGem = Position(x: row, y: col)
+            highlightGem(at: Position(x: row, y: col))
+        } else if let selected = selectedGem {
+            if selected.x == row && selected.y == col {
+                unhighlightGem(at: selected)
+                selectedGem = nil
+            } else if isAdjacent(selected, Position(x: row, y: col)) {
+                let targetPosition = Position(x: row, y: col)
+                swapGems(from: selected, to: targetPosition)
+                unhighlightGem(at: selected)
+                selectedGem = nil
+            } else {
+                unhighlightGem(at: selected)
+                selectedGem = Position(x: row, y: col)
+                highlightGem(at: Position(x: row, y: col))
+            }
+        }
+    }
+    
+    private func highlightGem(at position: Position) {
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
+            let pulse = SKAction.sequence([
+                SKAction.scale(to: 1.2, duration: 0.3),
+                SKAction.scale(to: 1.0, duration: 0.3)
+            ])
+            let repeatPulse = SKAction.repeatForever(pulse)
+            gem.run(repeatPulse, withKey: "highlight")
+        }
+    }
+    
+    private func unhighlightGem(at position: Position) {
+        if let gem = childNode(withName: "gem_\(position.x)_\(position.y)") {
+            gem.removeAction(forKey: "highlight")
+            gem.setScale(1.0)
+        }
+    }
+    
+    private func isAdjacent(_ pos1: Position, _ pos2: Position) -> Bool {
+        let dx = abs(pos1.x - pos2.x)
+        let dy = abs(pos1.y - pos2.y)
+        return (dx == 1 && dy == 0) || (dx == 0 && dy == 1)
+    }
+    
+    private func swapGems(from: Position, to: Position) {
+        let temp = gameBoard[from.x][from.y]
+        gameBoard[from.x][from.y] = gameBoard[to.x][to.y]
+        gameBoard[to.x][to.y] = temp
+        
+        if let gem1 = childNode(withName: "gem_\(from.x)_\(from.y)"),
+           let gem2 = childNode(withName: "gem_\(to.x)_\(to.y)"),
+           let pos1 = cellPositions["\(from.x)_\(from.y)"],
+           let pos2 = cellPositions["\(to.x)_\(to.y)"] {
+            
+            let move1 = SKAction.move(to: pos2, duration: 0.3)
+            let move2 = SKAction.move(to: pos1, duration: 0.3)
+            
+            gem1.run(move1)
+            gem2.run(move2)
+            
+            gem1.name = "gem_\(to.x)_\(to.y)"
+            gem2.name = "gem_\(from.x)_\(from.y)"
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                self.checkForMatches()
+            }
+        }
+    }
+    
+    private func checkForMatches() {
+        var matchedPositions: Set<Position> = []
+        
+        // 检查水平匹配
+        for row in 0..<8 {
+            var count = 1
+            var currentType = gameBoard[row][0]
+            
+            for col in 1..<8 {
+                if gameBoard[row][col] == currentType && currentType != nil {
+                    count += 1
+                } else {
+                    if count >= 3 {
+                        for i in (col - count)..<col {
+                            matchedPositions.insert(Position(x: row, y: i))
+                        }
+                    }
+                    count = 1
+                    currentType = gameBoard[row][col]
+                }
+            }
+            
+            if count >= 3 {
+                for i in (8 - count)..<8 {
+                    matchedPositions.insert(Position(x: row, y: i))
                 }
             }
         }
         
-        switch targetNode.name {
-        case "backButton":
-            print("🎮 点击返回按钮")
-            sceneManager?.popScene(transition: .push)
-        case "muteButton":
-            print("🎮 点击静音按钮")
-            let audioSystem = AudioSystem.shared
-            audioSystem.toggleMute()
-            updateMuteButton()
-        default:
-            print("🎮 点击了设置界面其他区域")
-            break
+        // 检查垂直匹配
+        for col in 0..<8 {
+            var count = 1
+            var currentType = gameBoard[0][col]
+            
+            for row in 1..<8 {
+                if gameBoard[row][col] == currentType && currentType != nil {
+                    count += 1
+                } else {
+                    if count >= 3 {
+                        for i in (row - count)..<row {
+                            matchedPositions.insert(Position(x: i, y: col))
+                        }
+                    }
+                    count = 1
+                    currentType = gameBoard[row][col]
+                }
+            }
+            
+            if count >= 3 {
+                for i in (8 - count)..<8 {
+                    matchedPositions.insert(Position(x: i, y: col))
+                }
+            }
+        }
+        
+        if !matchedPositions.isEmpty {
+            processMatches(matchedPositions)
         }
     }
     
-    private func updateMuteButton() {
-        if let muteButton = childNode(withName: "muteButton") as? SKShapeNode,
-           let label = muteButton.children.first as? SKLabelNode {
-            let audioSystem = AudioSystem.shared
-            label.text = audioSystem.isAudioMuted() ? "取消静音" : "静音"
+    private func processMatches(_ positions: Set<Position>) {
+        let matchCount = positions.count
+        let gemType = gameBoard[positions.first!.x][positions.first!.y] ?? .red
+        
+        GameManager.shared.processMatch(type: .horizontal(count: matchCount), gemType: gemType, count: matchCount)
+        
+        for position in positions {
+            removeGem(at: position)
+        }
+        
+        updateGameUI()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.dropGems()
         }
     }
     
-    // MARK: - BaseGameScene
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
+    private func dropGems() {
+        var needsNewGems = false
+        
+        for col in 0..<8 {
+            var writeIndex = 7
+            
+            for row in stride(from: 7, through: 0, by: -1) {
+                if gameBoard[row][col] != nil {
+                    if row != writeIndex {
+                        gameBoard[writeIndex][col] = gameBoard[row][col]
+                        gameBoard[row][col] = nil
+                        
+                        if let gem = childNode(withName: "gem_\(row)_\(col)"),
+                           let newPosition = cellPositions["\(writeIndex)_\(col)"] {
+                            let move = SKAction.move(to: newPosition, duration: 0.2)
+                            gem.run(move)
+                            gem.name = "gem_\(writeIndex)_\(col)"
+                        }
+                    }
+                    writeIndex -= 1
+                }
+            }
+            
+            // 只有当writeIndex >= 0时才生成新宝石
+            if writeIndex >= 0 {
+                for row in 0...writeIndex {
+                    let gemType = generateRandomGem()
+                    gameBoard[row][col] = gemType
+                    
+                    if let cellPosition = cellPositions["\(row)_\(col)"] {
+                        let gem = SKSpriteNode(texture: AssetManager.shared.getGemTexture(gemType))
+                        gem.size = CGSize(width: 30, height: 30)
+                        gem.position = CGPoint(x: cellPosition.x, y: cellPosition.y + 400)
+                        gem.zPosition = 5
+                        gem.name = "gem_\(row)_\(col)"
+                        addChild(gem)
+                        
+                        let drop = SKAction.move(to: cellPosition, duration: 0.4)
+                        gem.run(drop)
+                    }
+                    needsNewGems = true
+                }
+            }
+        }
+        
+        if needsNewGems {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.checkForMatches()
+            }
+        }
+    }
+    
+    private func updateGameUI() {
+        // 更新得分面板
+        if let scorePanel = childNode(withName: "scorePanel") as? SKNode {
+            if let scoreValue = scorePanel.childNode(withName: "value") as? SKLabelNode {
+                scoreValue.text = "\(GameManager.shared.totalScore)"
+            }
+        }
+        
+        // 更新连击面板
+        if let comboPanel = childNode(withName: "comboPanel") as? SKNode {
+            if let comboValue = comboPanel.childNode(withName: "value") as? SKLabelNode {
+                comboValue.text = "\(GameManager.shared.currentCombo)"
+            }
+        }
+        
+        // 更新关卡信息
+        if let levelLabel = childNode(withName: "levelLabel") as? SKLabelNode {
+            levelLabel.text = "🏰 关卡 \(GameManager.shared.currentLevel)-\(GameManager.shared.currentFloor)"
+        }
+    }
+    
+    private func handlePauseButton() {
+        GameManager.shared.pauseGame()
+    }
+    
+    private func handleResetButton() {
+        GameManager.shared.resetCurrentLevel()
+        removeAllChildren()
+        isSceneSetup = false
+        setupGameplayScene()
+    }
 }
 
-class GameOverScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
+// MARK: - 其他场景类的简单实现
+class CombatScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemRed
+        
+        let label = SKLabelNode(text: "战斗场景")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
 }
 
-class VictoryScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
+class ShopScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemGreen
+        
+        let label = SKLabelNode(text: "商店场景")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
 }
 
-class LoadingScene: SKScene, BaseGameScene {
-    weak var sceneManager: GameSceneManager?
-    func willAppear() {}
-    func didAppear() {}
-    func willDisappear() {}
-    func didDisappear() {}
-    func pauseGame() {}
-    func resumeGame() {}
+class InventoryScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemPurple
+        
+        let label = SKLabelNode(text: "物品栏场景")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
+}
+
+class SettingsScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemGray
+        
+        let label = SKLabelNode(text: "设置场景")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
+}
+
+class GameOverScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemRed
+        
+        let label = SKLabelNode(text: "游戏结束")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
+}
+
+class VictoryScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemYellow
+        
+        let label = SKLabelNode(text: "胜利！")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
+}
+
+class LoadingScene: BaseGameScene {
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        backgroundColor = UIColor.systemBlue
+        
+        let label = SKLabelNode(text: "加载中...")
+        label.position = CGPoint(x: size.width/2, y: size.height/2)
+        addChild(label)
+    }
 } 
